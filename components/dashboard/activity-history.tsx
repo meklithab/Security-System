@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
@@ -8,49 +8,53 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 
 interface Activity {
   id: string
-  created_at: string
-  action_type: string
-  resource_type: string | null
-  resource_name: string | null
-  status: "success" | "failed" | "pending" | null
-  ip_address: string | null
-  description: string
+  timestamp: string
+  action: string
+  resource: string
+  status: "success" | "denied"
+  ipAddress: string
 }
 
+const mockActivities: Activity[] = [
+  {
+    id: "1",
+    timestamp: "2024-12-01 14:32:15",
+    action: "login",
+    resource: "Dashboard",
+    status: "success",
+    ipAddress: "192.168.1.100",
+  },
+  {
+    id: "2",
+    timestamp: "2024-12-01 13:45:22",
+    action: "view_document",
+    resource: "Performance_Report_2024.pdf",
+    status: "success",
+    ipAddress: "192.168.1.100",
+  },
+  {
+    id: "3",
+    timestamp: "2024-12-01 12:15:10",
+    action: "update_profile",
+    resource: "Profile",
+    status: "success",
+    ipAddress: "192.168.1.100",
+  },
+  {
+    id: "4",
+    timestamp: "2024-11-30 18:30:45",
+    action: "access_denied",
+    resource: "Salary_Data",
+    status: "denied",
+    ipAddress: "192.168.2.50",
+  },
+]
+
 export default function ActivityHistory() {
-  const [activities, setActivities] = useState<Activity[]>([])
   const [filterAction, setFilterAction] = useState("all")
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-  async function fetchActivities() {
-    try {
-      const res = await fetch("/api/user/activity")
-      const data = await res.json()
-      console.log("API returned:", data) // <--- check here
-      setActivities(Array.isArray(data) ? data : data.activities || [])
-    } catch (err) {
-      console.error(err)
-    } finally {
-      setLoading(false)
-    }
-  }
-  fetchActivities()
-}, [])
-
-
 
   const filteredActivities =
-    filterAction !== "all"
-      ? activities.filter((a) => a.action_type === filterAction)
-      : activities
-
-  if (loading) return <div>Loading activity history...</div>
-
-  // Generate unique action types safely
-  const uniqueActions = Array.from(
-    new Set(activities.map((a) => a.action_type).filter((a): a is string => !!a))
-  )
+    filterAction !== "all" ? mockActivities.filter((a) => a.action === filterAction) : mockActivities
 
   return (
     <Card>
@@ -66,11 +70,9 @@ export default function ActivityHistory() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Actions</SelectItem>
-              {uniqueActions.map((action) => (
-                <SelectItem key={action} value={action}>
-                  {action}
-                </SelectItem>
-              ))}
+              <SelectItem value="login">Login</SelectItem>
+              <SelectItem value="view_document">View Document</SelectItem>
+              <SelectItem value="update_profile">Update Profile</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -86,39 +88,17 @@ export default function ActivityHistory() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredActivities.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={5} className="text-center text-sm">
-                  No activities found.
+            {filteredActivities.map((activity) => (
+              <TableRow key={activity.id}>
+                <TableCell className="text-sm">{activity.timestamp}</TableCell>
+                <TableCell className="font-medium text-sm">{activity.action}</TableCell>
+                <TableCell className="text-sm">{activity.resource}</TableCell>
+                <TableCell>
+                  <Badge variant={activity.status === "success" ? "default" : "destructive"}>{activity.status}</Badge>
                 </TableCell>
+                <TableCell className="font-mono text-xs">{activity.ipAddress}</TableCell>
               </TableRow>
-            ) : (
-              filteredActivities.map((activity) => (
-                <TableRow key={activity.id}>
-                  <TableCell className="text-sm">
-                    {new Date(activity.created_at).toLocaleString()}
-                  </TableCell>
-                  <TableCell className="font-medium text-sm">{activity.action_type}</TableCell>
-                  <TableCell className="text-sm">
-                    {activity.resource_name || activity.resource_type || "-"}
-                  </TableCell>
-                  <TableCell>
-                    <Badge
-                      variant={
-                        activity.status === "success"
-                          ? "default"
-                          : activity.status === "failed"
-                          ? "destructive"
-                          : "secondary"
-                      }
-                    >
-                      {activity.status || "-"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="font-mono text-xs">{activity.ip_address || "-"}</TableCell>
-                </TableRow>
-              ))
-            )}
+            ))}
           </TableBody>
         </Table>
       </CardContent>
