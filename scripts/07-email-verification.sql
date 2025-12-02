@@ -1,0 +1,9 @@
+CREATE TABLE IF NOT EXISTS email_verification_tokens (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token VARCHAR(255) UNIQUE NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  expires_at TIMESTAMP NOT NULL,
+  used BOOLEAN DEFAULT FALSE,
+  verified_at TIMESTAMP
+);

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getSupabaseServerClient } from "@/lib/supabase-server"
 import { hashPassword, generateSecureToken } from "@/lib/auth-utils"
 import { createAuditLog } from "@/lib/audit-service"
-
+import { sendVerificationEmail } from "@/lib/email-service"
 
 export async function POST(request: NextRequest) {
   try {
@@ -21,14 +21,21 @@ export async function POST(request: NextRequest) {
     // Hash password
     const passwordHash = await hashPassword(password)
 
-    // Insert user
-    const { data: newUser, error } = await supabase.from("users").insert([{
-      email,
-      full_name: fullName,
-      password_hash: passwordHash,
-      department,
-      is_active: true
-    }]).select().single()
+    // Insert user (start as inactive until email verified)
+    const { data: newUser, error } = await supabase
+      .from("users")
+      .insert([
+        {
+          email,
+          full_name: fullName,
+          password_hash: passwordHash,
+          department,
+          is_active: true,
+          email_verified: false,
+        },
+      ])
+      .select()
+      .single()
     if (error) throw new Error(error.message)
 
     const userId = newUser.id
@@ -37,22 +44,21 @@ export async function POST(request: NextRequest) {
     const { data: role } = await supabase.from("roles").select("id").eq("name", "Employee").single()
     if (role) await supabase.from("user_roles").insert([{ user_id: userId, role_id: role.id }])
 
-    // Assign default MAC classification (Internal)
-// Assign default MAC classification (Public)
-const { data: classification } = await supabase
-  .from("data_classifications")
-  .select("id")
-  .eq("name", "Public")
-  .single()
+    // Assign default MAC classification (Public)
+    const { data: classification } = await supabase
+      .from("data_classifications")
+      .select("id")
+      .eq("name", "Public")
+      .single()
 
-if (classification) {
-  await supabase.from("user_clearance_levels").insert({
-    user_id: userId,
-    classification_id: classification.id,
-    assigned_by: null, // no admin assigning
-    reason: "Automatic public clearance for new employee"
-  })
-}
+    if (classification) {
+      await supabase.from("user_clearance_levels").insert({
+        user_id: userId,
+        classification_id: classification.id,
+        assigned_by: null, // no admin assigning
+        reason: "Automatic public clearance for new employee",
+      })
+    }
 
     // Save ABAC attributes
     await supabase.from("abac_attributes").insert([
@@ -60,9 +66,15 @@ if (classification) {
       { user_id: userId, attribute_name: "status", attribute_value: "active" },
     ])
 
-    // Generate email verification token
+    // Generate email verification token (24h expiry)
     const token = generateSecureToken()
-    await supabase.from("email_verification_tokens").insert([{ user_id: userId, token, expires_at: new Date(Date.now() + 24*60*60000).toISOString() }])
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+    await supabase
+      .from("email_verification_tokens")
+      .insert([{ user_id: userId, token, expires_at: expiresAt, used: false }])
+
+    // Send verification email (best-effort)
+    await sendVerificationEmail(email, fullName, token)
 
     // Audit log
     await createAuditLog({

@@ -72,21 +72,28 @@ export async function checkPermission(userId: string, permissionName: string): P
   const supabase = await getSupabaseServerClient()
 
   // Get user's roles
-  const { data: userRoles } = await supabase.from("user_roles").select("role_id").eq("user_id", userId)
+  const { data: userRoles } = await supabase.from("user_roles").select("role_id, roles(name)").eq("user_id", userId)
 
   if (!userRoles || userRoles.length === 0) {
     return false
   }
 
-  const roleIds = userRoles.map((ur) => ur.role_id)
+  // System Admin is always allowed
+  const isSystemAdmin = (userRoles as Array<{ roles?: { name?: string }; role_id: string }>).some(
+    (ur) => ur.roles?.name === "System Admin",
+  )
+  if (isSystemAdmin) {
+    return true
+  }
 
-  // Check if any role has the permission
+  const roleIds = (userRoles as Array<{ role_id: string }>).map((ur) => ur.role_id)
+
+  // Check if any role has the permission (Supabase v2 style join using FK)
   const { data: rolePerms, error } = await supabase
     .from("role_permissions")
-    .select("role_permissions.role_id")
-    .in("role_permissions.role_id", roleIds)
+    .select("role_id, permissions!inner(name)")
+    .in("role_id", roleIds)
     .eq("permissions.name", permissionName)
-    .leftJoin("permissions", "role_permissions.permission_id", "permissions.id")
 
   if (error) throw error
   return rolePerms && rolePerms.length > 0
@@ -122,7 +129,7 @@ export async function checkResourcePermission(
       .eq("resource_id", resourceId)
       .in("granted_to_role_id", roleIds)
 
-    if (roleDacPerms && roleDacPerms.some((p) => p[`can_${action}`])) {
+    if (roleDacPerms && roleDacPerms.some((p: Record<string, boolean>) => p[`can_${action}`])) {
       return true
     }
   }
@@ -414,7 +421,9 @@ export async function evaluateABACPolicy(
   // Check custom rules
   if (policy.customRules) {
     for (const rule of policy.customRules) {
-      const customAttr = attributes.customAttributes?.find((a) => a.attribute_name === rule.attribute)
+      const customAttr = attributes.customAttributes?.find(
+        (a: { attribute_name: string; attribute_value: string }) => a.attribute_name === rule.attribute,
+      )
       if (!customAttr || customAttr.attribute_value !== rule.value) {
         return false
       }
@@ -453,19 +462,34 @@ export async function checkAccess(
       return { allowed: false, reason: "User has no roles assigned" }
     }
 
+    const isSystemAdmin = userRoles.some((ur: any) => ur.roles?.name === "System Admin")
+
     // 2. Check MAC - does user have clearance for this resource?
     const macAllowed = await checkMACAccess(userId, resourceId)
     if (!macAllowed) {
       return { allowed: false, reason: "User clearance level insufficient for this resource" }
     }
 
-    // 3. Check DAC - does user have specific resource permission?
+    // 3. Owner or System Admin shortcut (after MAC)
+    const supabase = await getSupabaseServerClient()
+    const { data: resource } = await supabase.from("resources").select("owner_id").eq("id", resourceId).single()
+
+    if (resource && (resource.owner_id === userId || isSystemAdmin)) {
+      // Still enforce RuBAC rules for owner/admin
+      const rubacAllowed = await evaluateRuBAC(userId, action, ipAddress)
+      if (!rubacAllowed) {
+        return { allowed: false, reason: "Access denied by time or location rules" }
+      }
+      return { allowed: true }
+    }
+
+    // 4. Check DAC - does user have specific resource permission?
     const dacAllowed = await checkResourcePermission(userId, resourceId, action)
     if (!dacAllowed) {
       return { allowed: false, reason: "User does not have specific resource permission" }
     }
 
-    // 4. Check RuBAC - do time/location rules allow access?
+    // 5. Check RuBAC - do time/location rules allow access?
     const rubacAllowed = await evaluateRuBAC(userId, action, ipAddress)
     if (!rubacAllowed) {
       return { allowed: false, reason: "Access denied by time or location rules" }

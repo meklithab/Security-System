@@ -1,14 +1,16 @@
 import { getAuditLogs, exportAuditLogs } from "@/lib/enhanced-audit-service"
 import { checkPermission } from "@/lib/access-control-service"
-import { getSupabaseServerClient } from "@/lib/supabase-server"
 import { type NextRequest, NextResponse } from "next/server"
+import { getCurrentUser } from "@/lib/auth-helpers"
+
+const MAX_LIMIT = 500
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = await getSupabaseServerClient()
-
     // Get current user (simplified - implement proper auth check)
-    const userId = request.headers.get("x-user-id")
+    const headerUserId = request.headers.get("x-user-id")
+    const sessionUser = headerUserId ? null : await getCurrentUser()
+    const userId = headerUserId || sessionUser?.id
 
     if (!userId || !(await checkPermission(userId, "view_logs"))) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 })
@@ -16,12 +18,19 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url)
     const format = (searchParams.get("format") as "csv" | "json") || "json"
-    const actionType = searchParams.get("actionType")
-    const limit = Number.parseInt(searchParams.get("limit") || "100")
+    const actionTypeParam = searchParams.get("actionType")
+    const statusParam = searchParams.get("status")
+    const parsedLimit = Number.parseInt(searchParams.get("limit") || "100", 10)
+    const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, MAX_LIMIT) : 100
+
+    // Treat "all" as no filter
+    const actionType = actionTypeParam === "all" ? undefined : actionTypeParam || undefined
+    const status = statusParam === "all" ? undefined : statusParam || undefined
 
     if (format === "csv" || format === "json") {
       const csv = await exportAuditLogs(format, {
-        actionType: actionType || undefined,
+        actionType,
+        status,
         limit,
       })
 
@@ -38,11 +47,19 @@ export async function GET(request: NextRequest) {
     }
 
     const { logs, total } = await getAuditLogs({
-      actionType: actionType || undefined,
+      actionType,
+      status,
       limit,
     })
 
-    return NextResponse.json({ logs, total }, { status: 200 })
+    const availableActions = Array.from(
+      new Set(logs.map((log: { action_type?: string | null }) => log.action_type).filter(Boolean)),
+    ).sort()
+    const availableStatuses = Array.from(
+      new Set(logs.map((log: { status?: string | null }) => log.status).filter(Boolean)),
+    ).sort()
+
+    return NextResponse.json({ logs, total, availableActions, availableStatuses }, { status: 200 })
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to fetch logs" },

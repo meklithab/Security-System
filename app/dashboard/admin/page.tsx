@@ -2,12 +2,13 @@
 
 import { useState } from "react"
 import { LogOut } from "lucide-react"
+
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import ProfileSettings from "@/components/dashboard/profile-settings"
-import ActivityHistory from "@/components/dashboard/activity-history"
 import SecuritySettings from "@/components/dashboard/security-settings"
 import Documents from "@/components/dashboard/documents"
+import ActivityHistory from "@/components/dashboard/activity-history"
 
 export default function UserDashboard() {
   const [activeTab, setActiveTab] = useState("overview")
@@ -35,9 +36,8 @@ export default function UserDashboard() {
           <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="overview">Profile</TabsTrigger>
             <TabsTrigger value="security">Security</TabsTrigger>
-            <TabsTrigger value="activity">Activity</TabsTrigger>
+            <TabsTrigger value="activity">System Activity</TabsTrigger>
             <TabsTrigger value="documents">Documents</TabsTrigger>
-
           </TabsList>
 
           {/* Profile Tab */}
@@ -50,12 +50,12 @@ export default function UserDashboard() {
             <SecuritySettings />
           </TabsContent>
 
-          {/* Activity Tab */}
+          {/* System Activity Tab (admin sees all activity) */}
           <TabsContent value="activity">
-            <ActivityHistory />
+            <ActivityHistory mode="admin" />
           </TabsContent>
 
-              <TabsContent value="documents">
+          <TabsContent value="documents">
             <Documents />
           </TabsContent>
         </Tabs>

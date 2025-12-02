@@ -1,94 +1,178 @@
 "use client"
 
-import { useState } from "react"
-import { Download } from "lucide-react"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { Download, RefreshCw } from "lucide-react"
+
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Spinner } from "@/components/ui/spinner"
 
 interface AuditLog {
   id: string
-  timestamp: string
-  user: string
-  action: string
-  resource: string
-  status: "success" | "denied" | "error"
-  ipAddress: string
+  created_at: string
+  user_id?: string | null
+  action_type: string
+  resource_type?: string | null
+  resource_name?: string | null
+  status?: string | null
+  ip_address?: string | null
+  description?: string | null
 }
 
-const mockLogs: AuditLog[] = [
-  {
-    id: "1",
-    timestamp: "2024-12-01 14:32:15",
-    user: "admin@astu.edu.et",
-    action: "user_created",
-    resource: "john.doe@astu.edu.et",
-    status: "success",
-    ipAddress: "192.168.1.1",
-  },
-  {
-    id: "2",
-    timestamp: "2024-12-01 14:28:43",
-    user: "security@astu.edu.et",
-    action: "permission_granted",
-    resource: "salary_reports",
-    status: "success",
-    ipAddress: "192.168.1.50",
-  },
-  {
-    id: "3",
-    timestamp: "2024-12-01 14:15:22",
-    user: "employee@astu.edu.et",
-    action: "resource_access",
-    resource: "confidential_document",
-    status: "denied",
-    ipAddress: "192.168.1.100",
-  },
-]
+interface AuditLogResponse {
+  logs: AuditLog[]
+  total: number
+  availableActions?: string[]
+  availableStatuses?: string[]
+  error?: string
+}
+
+const ROW_SKELETON_COUNT = 6
 
 export default function AuditLogs() {
-  const [logs, setLogs] = useState<AuditLog[]>(mockLogs)
-  const [actionFilter, setActionFilter] = useState("")
-  const [statusFilter, setStatusFilter] = useState("")
+  const [logs, setLogs] = useState<AuditLog[]>([])
+  const [actionFilter, setActionFilter] = useState("all")
+  const [statusFilter, setStatusFilter] = useState("all")
+  const [availableActions, setAvailableActions] = useState<string[]>([])
+  const [availableStatuses, setAvailableStatuses] = useState<string[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [total, setTotal] = useState(0)
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
 
-  const filteredLogs = logs.filter(
-    (log) => (!actionFilter || log.action === actionFilter) && (!statusFilter || log.status === statusFilter),
+  const buildParams = useCallback(() => {
+    const params = new URLSearchParams({ limit: "100" })
+    if (actionFilter !== "all") params.set("actionType", actionFilter)
+    if (statusFilter !== "all") params.set("status", statusFilter)
+    return params
+  }, [actionFilter, statusFilter])
+
+  const fetchLogs = useCallback(
+    async (signal?: AbortSignal) => {
+      setIsLoading(true)
+      setError(null)
+
+      const params = buildParams()
+
+      try {
+        const response = await fetch(`/api/audit/logs?${params.toString()}`, {
+          cache: "no-store",
+          signal,
+        })
+
+        const payload = (await response.json().catch(() => null)) as AuditLogResponse | { error?: string } | null
+
+        if (!response.ok || !payload || "error" in payload) {
+          throw new Error((payload as { error?: string } | null)?.error || "Unable to load audit logs")
+        }
+
+        setLogs(payload.logs || [])
+        setAvailableActions(payload.availableActions || [])
+        setAvailableStatuses(payload.availableStatuses || [])
+        setTotal(payload.total || 0)
+        setLastUpdated(new Date())
+      } finally {
+        setIsLoading(false)
+      }
+    },
+    [buildParams],
   )
 
-  const handleExport = (format: "csv" | "json") => {
-    if (format === "csv") {
-      const csv = [
-        ["Timestamp", "User", "Action", "Resource", "Status", "IP Address"],
-        ...filteredLogs.map((log) => [log.timestamp, log.user, log.action, log.resource, log.status, log.ipAddress]),
-      ]
-        .map((row) => row.map((cell) => `"${cell}"`).join(","))
-        .join("\n")
+  const handleRefresh = useCallback(() => {
+    fetchLogs().catch((err) => {
+      if ((err as Error).name !== "AbortError") {
+        setError((err as Error).message)
+      }
+    })
+  }, [fetchLogs])
 
-      downloadFile(csv, "audit-logs.csv", "text/csv")
-    } else {
-      downloadFile(JSON.stringify(filteredLogs, null, 2), "audit-logs.json", "application/json")
-    }
-  }
+  useEffect(() => {
+    const controller = new AbortController()
+    fetchLogs(controller.signal).catch((err) => {
+      if ((err as Error).name !== "AbortError") {
+        console.error(err)
+        setError((err as Error).message)
+      }
+    })
 
-  const downloadFile = (content: string, filename: string, type: string) => {
-    const blob = new Blob([content], { type })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-  }
+    return () => controller.abort()
+  }, [fetchLogs])
+
+  const handleExport = useCallback(
+    async (format: "csv" | "json") => {
+      try {
+        const params = buildParams()
+        params.set("format", format)
+
+        const response = await fetch(`/api/audit/logs?${params.toString()}`, {
+          cache: "no-store",
+        })
+
+        if (!response.ok) {
+          const body = (await response.json().catch(() => null)) as { error?: string } | null
+          throw new Error(body?.error || `Unable to export logs as ${format.toUpperCase()}`)
+        }
+
+        const blob = await response.blob()
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement("a")
+        link.href = url
+        link.download = `audit-logs.${format === "csv" ? "csv" : "json"}`
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        URL.revokeObjectURL(url)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Unable to export logs")
+      }
+    },
+    [buildParams],
+  )
+
+  const dateFormatter = useMemo(
+    () =>
+      new Intl.DateTimeFormat(undefined, {
+        dateStyle: "medium",
+        timeStyle: "short",
+      }),
+    [],
+  )
+
+  const actionOptions = ["all", ...availableActions]
+  const statusOptions = availableStatuses.length > 0 ? ["all", ...availableStatuses] : ["all", "success", "denied", "error"]
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Audit Logs</CardTitle>
-        <CardDescription>View and export system activity logs</CardDescription>
+      <CardHeader className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+        <div>
+          <CardTitle>Audit Logs</CardTitle>
+          <CardDescription>
+            System-wide activity ({total} events)
+            {lastUpdated && !isLoading && (
+              <span className="ml-1 text-xs text-muted-foreground">
+                • Updated {dateFormatter.format(lastUpdated)}
+              </span>
+            )}
+          </CardDescription>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isLoading}>
+            {isLoading ? <Spinner className="mr-2 h-4 w-4" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+            Refresh
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => handleExport("csv")} disabled={isLoading}>
+            <Download className="mr-2 h-4 w-4" />
+            CSV
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => handleExport("json")} disabled={isLoading}>
+            <Download className="mr-2 h-4 w-4" />
+            JSON
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex flex-wrap gap-4">
@@ -98,11 +182,11 @@ export default function AuditLogs() {
                 <SelectValue placeholder="Filter by action" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Actions</SelectItem>
-                <SelectItem value="user_created">User Created</SelectItem>
-                <SelectItem value="permission_granted">Permission Granted</SelectItem>
-                <SelectItem value="resource_access">Resource Access</SelectItem>
-                <SelectItem value="login">Login</SelectItem>
+                {actionOptions.map((action) => (
+                  <SelectItem key={action} value={action}>
+                    {action === "all" ? "All actions" : action.replace(/_/g, " ")}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -113,22 +197,14 @@ export default function AuditLogs() {
                 <SelectValue placeholder="Filter by status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="success">Success</SelectItem>
-                <SelectItem value="denied">Denied</SelectItem>
-                <SelectItem value="error">Error</SelectItem>
+                {statusOptions.map((status) => (
+                  <SelectItem key={status} value={status}>
+                    {status === "all" ? "All statuses" : status}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
-
-          <Button variant="outline" size="sm" onClick={() => handleExport("csv")}>
-            <Download className="mr-2 h-4 w-4" />
-            CSV
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => handleExport("json")}>
-            <Download className="mr-2 h-4 w-4" />
-            JSON
-          </Button>
         </div>
 
         <Table>
@@ -143,26 +219,62 @@ export default function AuditLogs() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredLogs.map((log) => (
-              <TableRow key={log.id}>
-                <TableCell className="text-sm">{log.timestamp}</TableCell>
-                <TableCell className="text-sm">{log.user}</TableCell>
-                <TableCell>
-                  <code className="text-xs bg-muted px-2 py-1 rounded">{log.action}</code>
+            {isLoading &&
+              Array.from({ length: ROW_SKELETON_COUNT }).map((_, index) => (
+                <TableRow key={`audit-skeleton-${index}`}>
+                  <TableCell colSpan={6}>
+                    <Skeleton className="h-4 w-full" />
+                  </TableCell>
+                </TableRow>
+              ))}
+
+            {!isLoading && error && (
+              <TableRow>
+                <TableCell colSpan={6} className="text-center text-sm text-destructive">
+                  {error}
                 </TableCell>
-                <TableCell className="text-sm">{log.resource}</TableCell>
-                <TableCell>
-                  <Badge
-                    variant={
-                      log.status === "success" ? "default" : log.status === "denied" ? "destructive" : "secondary"
-                    }
-                  >
-                    {log.status}
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-sm font-mono text-xs">{log.ipAddress}</TableCell>
               </TableRow>
-            ))}
+            )}
+
+            {!isLoading && !error && logs.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={6} className="text-center text-sm text-muted-foreground">
+                  No audit events match the selected filters.
+                </TableCell>
+              </TableRow>
+            )}
+
+            {!isLoading &&
+              !error &&
+              logs.map((log) => {
+                const status = log.status || "unknown"
+                const badgeVariant: "default" | "secondary" | "destructive" =
+                  status === "success" ? "default" : status === "denied" || status === "failed" ? "destructive" : "secondary"
+
+                return (
+                  <TableRow key={log.id}>
+                    <TableCell className="text-sm">
+                      {log.created_at ? dateFormatter.format(new Date(log.created_at)) : "—"}
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      <code className="rounded bg-muted px-2 py-1 text-xs">
+                        {log.user_id || "system"}
+                      </code>
+                    </TableCell>
+                    <TableCell>
+                      <code className="text-xs bg-muted px-2 py-1 rounded">{log.action_type}</code>
+                      {log.description && <p className="text-xs text-muted-foreground">{log.description}</p>}
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      {log.resource_name || log.resource_type || "—"}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={badgeVariant}>{status}</Badge>
+                    </TableCell>
+                    <TableCell className="text-sm font-mono text-xs">{log.ip_address || "—"}</TableCell>
+                  </TableRow>
+                )
+              })}
           </TableBody>
         </Table>
       </CardContent>
