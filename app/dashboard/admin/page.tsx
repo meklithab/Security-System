@@ -9,6 +9,7 @@ import ProfileSettings from "@/components/dashboard/profile-settings"
 import SecuritySettings from "@/components/dashboard/security-settings"
 import Documents from "@/components/dashboard/documents"
 import ActivityHistory from "@/components/dashboard/activity-history"
+import AdminRoleManagement from "@/components/dashboard/admin-role-management"
 
 export default function UserDashboard() {
   const [activeTab, setActiveTab] = useState("overview")
@@ -38,6 +39,7 @@ export default function UserDashboard() {
             <TabsTrigger value="security">Security</TabsTrigger>
             <TabsTrigger value="activity">System Activity</TabsTrigger>
             <TabsTrigger value="documents">Documents</TabsTrigger>
+            <TabsTrigger value="roles">Role Management</TabsTrigger>
           </TabsList>
 
           {/* Profile Tab */}
@@ -57,6 +59,10 @@ export default function UserDashboard() {
 
           <TabsContent value="documents">
             <Documents />
+          </TabsContent>
+
+          <TabsContent value="roles">
+            <AdminRoleManagement />
           </TabsContent>
         </Tabs>
       </main>

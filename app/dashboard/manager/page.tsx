@@ -8,6 +8,7 @@ import ProfileSettings from "@/components/dashboard/profile-settings"
 import ActivityHistory from "@/components/dashboard/activity-history"
 import SecuritySettings from "@/components/dashboard/security-settings"
 import Documents from "@/components/dashboard/documents"
+import UserRoleRequest from "@/components/dashboard/user-role-request"
 
 export default function UserDashboard() {
   const [activeTab, setActiveTab] = useState("overview")
@@ -22,11 +23,11 @@ export default function UserDashboard() {
               <h1 className="text-2xl font-bold text-foreground">MANAGER Dashboard</h1>
               <p className="mt-1 text-sm text-muted-foreground">Manage your profile and security settings</p>
             </div>
-           
-                        <Button variant="outline">
- <Link >
-              <LogOut className="mr-2 h-4 w-4" />
-              Logout</Link>
+
+            <Button variant="outline">
+              <Link >
+                <LogOut className="mr-2 h-4 w-4" />
+                Logout</Link>
             </Button>
 
           </div>
@@ -39,8 +40,8 @@ export default function UserDashboard() {
             <TabsTrigger value="overview">Profile</TabsTrigger>
             <TabsTrigger value="security">Security</TabsTrigger>
             <TabsTrigger value="activity">Activity</TabsTrigger>
-              <TabsTrigger value="documents">Documents</TabsTrigger>
-
+            <TabsTrigger value="documents">Documents</TabsTrigger>
+            <TabsTrigger value="roles">Role Request</TabsTrigger>
           </TabsList>
 
           {/* Profile Tab */}
@@ -58,8 +59,12 @@ export default function UserDashboard() {
             <ActivityHistory />
           </TabsContent>
 
-             <TabsContent value="documents">
+          <TabsContent value="documents">
             <Documents />
+          </TabsContent>
+
+          <TabsContent value="roles">
+            <UserRoleRequest />
           </TabsContent>
         </Tabs>
       </main>
