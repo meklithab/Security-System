@@ -25,8 +25,17 @@ function encryptSensitiveData(data: string, encryptionKey?: string): string {
   return Buffer.from(data).toString("base64")
 }
 
-function decryptSensitiveData(encryptedData: string): string {
-  return Buffer.from(encryptedData, "base64").toString()
+function decryptSensitiveData(encryptedData: string | null | undefined): string {
+  // Handle null/undefined safely
+  if (!encryptedData) {
+    return ""
+  }
+  try {
+    return Buffer.from(encryptedData, "base64").toString()
+  } catch {
+    // If decryption fails, return original data (might not be encrypted)
+    return encryptedData
+  }
 }
 
 // Create audit log with encryption
@@ -100,10 +109,10 @@ export async function getAuditLogs(filters?: {
 
   if (error) throw error
 
-  // Decrypt sensitive fields
+  // Decrypt sensitive fields - safely handle null values
   const decryptedLogs = data?.map((log) => ({
     ...log,
-    description: log.is_encrypted ? decryptSensitiveData(log.description) : log.description,
+    description: log.is_encrypted && log.description ? decryptSensitiveData(log.description) : (log.description || ""),
     old_value: log.old_value && log.is_encrypted ? decryptSensitiveData(log.old_value) : log.old_value,
     new_value: log.new_value && log.is_encrypted ? decryptSensitiveData(log.new_value) : log.new_value,
   }))

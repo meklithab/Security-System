@@ -43,9 +43,18 @@ function encryptData(data: string): string {
 }
 
 // Decrypt audit log data
-export function decryptData(encryptedData: string): string {
+export function decryptData(encryptedData: string | null | undefined): string {
+  // Handle null/undefined safely
+  if (!encryptedData) {
+    return ""
+  }
   // This is a placeholder - use proper decryption in production
-  return Buffer.from(encryptedData, "base64").toString()
+  try {
+    return Buffer.from(encryptedData, "base64").toString()
+  } catch {
+    // If decryption fails, return the original data (might not be encrypted)
+    return encryptedData
+  }
 }
 
 // Get audit logs with optional filtering
@@ -86,12 +95,12 @@ export async function getAuditLogs(filters?: {
 
   if (error) throw error
 
-  // Decrypt data
-  return data?.map((log: { description: string; old_value: string; new_value: string }) => ({
+  // Decrypt data - safely handle null values
+  return data?.map((log: { description: string | null; old_value: string | null; new_value: string | null; is_encrypted?: boolean }) => ({
     ...log,
-    description: decryptData(log.description),
-    old_value: log.old_value ? decryptData(log.old_value) : null,
-    new_value: log.new_value ? decryptData(log.new_value) : null,
+    description: log.is_encrypted ? decryptData(log.description) : (log.description || ""),
+    old_value: log.old_value && log.is_encrypted ? decryptData(log.old_value) : log.old_value,
+    new_value: log.new_value && log.is_encrypted ? decryptData(log.new_value) : log.new_value,
   }))
 }
 

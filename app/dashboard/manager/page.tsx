@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { LogOut } from "lucide-react"
+import { Link, LogOut } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import ProfileSettings from "@/components/dashboard/profile-settings"
@@ -22,10 +22,13 @@ export default function UserDashboard() {
               <h1 className="text-2xl font-bold text-foreground">MANAGER Dashboard</h1>
               <p className="mt-1 text-sm text-muted-foreground">Manage your profile and security settings</p>
             </div>
-            <Button variant="outline">
+           
+                        <Button variant="outline">
+ <Link >
               <LogOut className="mr-2 h-4 w-4" />
-              Logout
+              Logout</Link>
             </Button>
+
           </div>
         </div>
       </header>

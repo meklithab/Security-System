@@ -456,26 +456,18 @@ export async function checkAccess(
   ipAddress?: string,
 ): Promise<{ allowed: boolean; reason?: string }> {
   try {
-    // 1. Check RBAC - does user have required role?
+    // 1. Check RBAC - does user have any role?
     const userRoles = await getUserRoles(userId)
     if (userRoles.length === 0) {
       return { allowed: false, reason: "User has no roles assigned" }
     }
 
     const isSystemAdmin = userRoles.some((ur: any) => ur.roles?.name === "System Admin")
-
-    // 2. Check MAC - does user have clearance for this resource?
-    const macAllowed = await checkMACAccess(userId, resourceId)
-    if (!macAllowed) {
-      return { allowed: false, reason: "User clearance level insufficient for this resource" }
-    }
-
-    // 3. Owner or System Admin shortcut (after MAC)
     const supabase = await getSupabaseServerClient()
     const { data: resource } = await supabase.from("resources").select("owner_id").eq("id", resourceId).single()
 
-    if (resource && (resource.owner_id === userId || isSystemAdmin)) {
-      // Still enforce RuBAC rules for owner/admin
+    // 2. System Admin has full access (subject to RuBAC)
+    if (isSystemAdmin) {
       const rubacAllowed = await evaluateRuBAC(userId, action, ipAddress)
       if (!rubacAllowed) {
         return { allowed: false, reason: "Access denied by time or location rules" }
@@ -483,13 +475,34 @@ export async function checkAccess(
       return { allowed: true }
     }
 
-    // 4. Check DAC - does user have specific resource permission?
-    const dacAllowed = await checkResourcePermission(userId, resourceId, action)
-    if (!dacAllowed) {
-      return { allowed: false, reason: "User does not have specific resource permission" }
+    // 3. Owner has full access to their resources (subject to RuBAC)
+    if (resource && resource.owner_id === userId) {
+      const rubacAllowed = await evaluateRuBAC(userId, action, ipAddress)
+      if (!rubacAllowed) {
+        return { allowed: false, reason: "Access denied by time or location rules" }
+      }
+      return { allowed: true }
     }
 
-    // 5. Check RuBAC - do time/location rules allow access?
+    // 4. Check DAC - does user have explicit resource permission?
+    // If yes, this bypasses MAC (owner explicitly granted access)
+    const dacAllowed = await checkResourcePermission(userId, resourceId, action)
+    if (dacAllowed) {
+      // DAC permission granted - check RuBAC and allow
+      const rubacAllowed = await evaluateRuBAC(userId, action, ipAddress)
+      if (!rubacAllowed) {
+        return { allowed: false, reason: "Access denied by time or location rules" }
+      }
+      return { allowed: true }
+    }
+
+    // 5. No explicit DAC permission - fall back to MAC-based access
+    const macAllowed = await checkMACAccess(userId, resourceId)
+    if (!macAllowed) {
+      return { allowed: false, reason: "User does not have permission for this resource" }
+    }
+
+    // 6. Check RuBAC - do time/location rules allow access?
     const rubacAllowed = await evaluateRuBAC(userId, action, ipAddress)
     if (!rubacAllowed) {
       return { allowed: false, reason: "Access denied by time or location rules" }
